@@ -313,6 +313,15 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   dianggap bersambung bila jedanya ≤ 2 bulan kosong; catatan yang jauh lebih awal (mis. salah ketik tahun) tidak menggeser
   awal periode, tetapi ditampilkan sebagai tanda + tombol **Sertakan sejak …**. Pilihan Tahun / 3–6–12 bulan / satu bulan
   / dari–sampai tetap ada.
+- **Tanggal Mulai Pembukuan** (`templates.pembukuan = { mulai: 'YYYY-MM-01', rekening, tunai, dana, oleh, at }`,
+  bawaan **1 Mei 2026** lewat `bacaMulaiBuku`; `mulai: ''` = tanpa tanggal mulai, perilaku lama "Sejak awal pakai
+  aplikasi"). Untung/Rugi hanya menghitung bulan ≥ tanggal mulai ("Sejak mulai pembukuan"); data lama tetap tersimpan,
+  diringkas per menu + tombol **Tampilkan data lama** (dengan banner peringatan). Selisih lama titik mulai Posisi Uang
+  tidak lagi dibagi ke Untung/Rugi. **Neraca ringkas** di tab Posisi Uang: saldo awal (rekening + tunai + dana diisi
+  Admin; piutang invoice lama, kasbon, hutang nota/biaya/gaji/komisi/bagi hasil/DP titipan dihitung otomatis = nilai −
+  pembayaran sebelum tanggal mulai) vs hari ini (angka Posisi Uang), lalu **cek "pas"**: kenaikan kekayaan bersih −
+  untung sejak tanggal mulai − upah belum direkap = selisih belum tercatat (✅ bila ≤ 1% pendapatan / Rp 100 rb).
+  Menu Invoice & link marketing tidak berubah (invoice lama yang belum lunas tetap ditagih).
 - **Menu Biaya — cari & total**: kata yang dicari dicocokkan per baris rincian (semua kata harus ada, urutan bebas).
   Kotak **Total pencarian** menjumlah hanya baris yang cocok (qty × harga, diskon dibagi rata); bila kata ada di
   judul/kategori/penerima/catatan, seluruh transaksi dihitung. Uang masuk & keluar dijumlah terpisah, ada rincian per

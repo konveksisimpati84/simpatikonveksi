@@ -19218,7 +19218,121 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             return urTurunan(t);
         };
 
-        const UntungRugiPosisi = ({ orders, employees, invoices, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, driverRekapGaji, driverTransactions = [], drivers = [], danaOperasional, templates, absensiRawLogs, absensiEdits, posisiInfo = null, selisihLama = 0, slDari = '', slDariSaldoAwal = false, tglMulai = '', mulaiAt = '', namaPencetak = '', showToast }) => {
+        // ===== Tanggal mulai pembukuan =====
+        // Data bertanggal SEBELUM tanggal ini = "data lama" (diinput belakangan, pengeluarannya tidak lengkap): tidak dihitung
+        // sebagai pendapatan/biaya di Untung/Rugi; sisa invoice/nota lama menjadi piutang/hutang awal di Neraca ringkas.
+        // Bawaan 1 Mei 2026 (ditetapkan pemilik); Admin bisa mengubah di tab Posisi Uang. '' = tidak memakai tanggal mulai.
+        const MULAI_BUKU_BAWAAN = '2026-05-01';
+        const bacaMulaiBuku = (templates) => {
+            const pb = templates && templates.pembukuan;
+            if (pb && pb.mulai === '') return '';
+            return pb && /^\d{4}-\d{2}-01$/.test(String(pb.mulai || '')) ? pb.mulai : MULAI_BUKU_BAWAAN;
+        };
+        // Neraca ringkas (saldo awal pada tanggal mulai pembukuan vs hari ini) + cek "pas": untung = kenaikan kekayaan bersih
+        const NeracaRingkas = ({ neraca, perSemua, bulanIni }) => {
+            const { awal, kini, simpan, isian } = neraca;
+            const bulanBuku = neraca.mulai.slice(0, 7);
+            const fRp = (n) => formatRupiah(Math.round(n));
+            const [form, setForm] = React.useState(null); // { bulan, rekening, tunai, dana } (string angka)
+            const tJml = React.useMemo(() => urJumlah(perSemua, b => b >= bulanBuku && b <= bulanIni), [perSemua, bulanBuku, bulanIni]);
+            const laba = tJml.laba;
+            const belumRekap = tJml.harianBelum + tJml.driverBelum;
+            const ada = awal.adaKas && kini;
+            const naik = ada ? kini.bersih - awal.bersih : 0;
+            const selisih = ada ? naik - laba - belumRekap : 0;
+            const batasPas = Math.max(100000, Math.abs(tJml.pendapatan) * 0.01);
+            const pas = ada && Math.abs(selisih) <= batasPas;
+            const persenSel = tJml.pendapatan > 0 ? Math.abs(selisih) / tJml.pendapatan * 100 : null;
+            const tglAwal = fmtTglStruk(neraca.mulai);
+            const tglKini = fmtTglStruk(toLocalDateStr());
+            const kw = (k) => [['nota bahan', k.vendor], ['biaya', k.biaya], ['gaji', k.gaji], ['komisi', k.komisi], ['bagi hasil', k.bagiHasil], ['talangan dana', k.talangan || 0], ['DP titipan', k.dpTitipan]].filter(([, v]) => v > 0.5).map(([l, v]) => `${l} ${urRingkas(v)}`).join(' · ');
+            const R = ({ id, l, v, kecil, g, m, neg }) => (
+                <div data-nr-baris={id} data-nr-nilai={v == null ? '' : Math.round(v)} className={`flex justify-between gap-2 px-3 py-1.5 border-t border-gray-200 ${m ? 'bg-indigo-50 text-indigo-800 font-black' : g ? 'bg-gray-50 font-black' : ''}`}>
+                    <span className="min-w-0">{l}{kecil && <span className="block text-[11px] text-gray-400 font-normal">{kecil}</span>}</span>
+                    <span className="whitespace-nowrap tabular-nums font-semibold">{v == null ? <span className="text-gray-400 font-normal">belum diisi</span> : `${neg && v > 0.5 ? '− ' : ''}${fRp(v)}`}</span>
+                </div>
+            );
+            const angka = (v) => Number(String(v ?? '').replace(/\D/g, '')) || 0;
+            const tampil = (v) => v === '' ? '' : Number(v).toLocaleString('id-ID');
+            const isiAngka = (k) => (e) => { const v = e.target.value.replace(/\D/g, ''); setForm(f => ({ ...f, [k]: v })); };
+            const bukaForm = () => setForm({ bulan: bulanBuku, rekening: awal.adaKas ? String(Math.round(awal.rekening)) : '', tunai: awal.adaKas ? String(Math.round(awal.tunai)) : '', dana: awal.adaKas && awal.dana ? String(Math.round(awal.dana)) : '' });
+            const kosong = form && (form.rekening === '' || form.tunai === '' || !/^\d{4}-\d{2}$/.test(form.bulan || ''));
+            const inputCls = 'mt-1 w-full border border-blue-300 bg-blue-50 rounded-lg p-2 text-sm font-bold text-right tabular-nums';
+            return (
+                <div data-neraca className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                            <div className="font-black text-gray-800">📒 Neraca ringkas</div>
+                            <div className="text-xs text-gray-500">Mulai pembukuan <b data-nr-mulai={neraca.mulai}>{tglAwal}</b> · data sebelum tanggal ini = data lama (tidak dihitung untung/rugi)</div>
+                        </div>
+                        {simpan && !form && <button type="button" data-nr-atur onClick={bukaForm} className="rounded-xl border border-blue-300 text-blue-700 px-3 py-1.5 text-xs font-black">{awal.adaKas ? '✏️ Ubah saldo awal' : '✏️ Isi saldo awal'}</button>}
+                    </div>
+                    {simpan && form && (
+                        <div data-nr-form className="border border-blue-200 bg-blue-50/40 rounded-xl p-3 space-y-2">
+                            <div className="text-[12.5px] text-gray-700">Isi uang <b>sungguhan</b> pada tanggal mulai pembukuan (lihat mutasi rekening & hitung uang tunai per tanggal itu). Cukup sekali.</div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                <label className="block text-xs font-bold text-gray-600">Bulan mulai pembukuan (tanggal 1)<input type="month" data-nr-in="bulan" className="mt-1 w-full border border-blue-300 bg-blue-50 rounded-lg p-2 text-sm font-bold" value={form.bulan} onChange={e => setForm(f => ({ ...f, bulan: e.target.value }))} /></label>
+                                <label className="block text-xs font-bold text-gray-600">Saldo rekening bank<input data-nr-in="rekening" inputMode="numeric" className={inputCls} placeholder="0" value={tampil(form.rekening)} onChange={isiAngka('rekening')} /></label>
+                                <label className="block text-xs font-bold text-gray-600">Uang tunai di kantor<input data-nr-in="tunai" inputMode="numeric" className={inputCls} placeholder="0" value={tampil(form.tunai)} onChange={isiAngka('tunai')} /></label>
+                                <label className="block text-xs font-bold text-gray-600">Dana dipegang karyawan (bila ada)<input data-nr-in="dana" inputMode="numeric" className={inputCls} placeholder="0" value={tampil(form.dana)} onChange={isiAngka('dana')} /></label>
+                            </div>
+                            {form.bulan !== bulanBuku && /^\d{4}-\d{2}$/.test(form.bulan || '') && <div data-nr-ganti-bulan className="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">⚠ Tanggal mulai diganti ke {fmtTglStruk(`${form.bulan}-01`)} — Untung/Rugi akan dihitung ulang sejak tanggal itu.</div>}
+                            <div className="flex flex-wrap gap-2 justify-end">
+                                <button type="button" data-nr-batal onClick={() => setForm(null)} className="rounded-xl border border-gray-300 px-3 py-1.5 text-sm font-bold text-gray-600">Batal</button>
+                                <button type="button" data-nr-simpan disabled={kosong} onClick={() => { simpan({ mulai: `${form.bulan}-01`, rekening: angka(form.rekening), tunai: angka(form.tunai), dana: angka(form.dana) }); setForm(null); }} className={`rounded-xl px-3.5 py-1.5 text-sm font-black text-white ${kosong ? 'bg-gray-300' : 'bg-blue-700 hover:bg-blue-800'}`}>Simpan saldo awal</button>
+                            </div>
+                        </div>
+                    )}
+                    <div className="grid gap-3 md:grid-cols-2 text-[13px]">
+                        <div data-nr-awal={awal.bersih == null ? '' : Math.round(awal.bersih)} className="border border-gray-200 rounded-xl overflow-hidden">
+                            <div className="bg-gray-800 text-white px-3 py-1.5 font-black">Saldo awal · {tglAwal}</div>
+                            <R id="awal-kas" l="Rekening + tunai" kecil="diisi Admin sekali" v={awal.kas} />
+                            <R id="awal-dana" l="Dana di karyawan" v={awal.adaKas ? awal.dana : null} />
+                            <R id="awal-piutang" l="Piutang invoice lama" kecil={`otomatis · ${awal.nPiutang} invoice belum lunas`} v={awal.piutang} />
+                            {awal.kasbon > 0.5 && <R id="awal-kasbon" l="Kasbon karyawan / driver" v={awal.kasbon} />}
+                            <R id="awal-harta" l="Total harta" v={awal.harta} g />
+                            <R id="awal-hutang" l="Hutang & kewajiban lama" kecil={`otomatis${kw(awal.kewajiban) ? ` · ${kw(awal.kewajiban)}` : ''}`} v={awal.kewajiban.total} neg />
+                            <R id="awal-bersih" l="Kekayaan bersih awal" v={awal.bersih} m />
+                        </div>
+                        <div data-nr-kini={kini ? Math.round(kini.bersih) : ''} className="border border-gray-200 rounded-xl overflow-hidden">
+                            <div className="bg-gray-800 text-white px-3 py-1.5 font-black">Hari ini · {tglKini}</div>
+                            {kini ? <>
+                                <R id="kini-kas" l="Rekening + tunai" v={kini.kas} />
+                                <R id="kini-dana" l="Dana di karyawan" v={kini.dana} />
+                                <R id="kini-piutang" l="Piutang invoice" v={kini.piutang} />
+                                {kini.kasbon > 0.5 && <R id="kini-kasbon" l="Kasbon karyawan / driver" v={kini.kasbon} />}
+                                <R id="kini-harta" l="Total harta" v={kini.harta} g />
+                                <R id="kini-hutang" l="Hutang & kewajiban belum dibayar" kecil={kw(kini.kewajiban)} v={kini.kewajiban.total} neg />
+                                <R id="kini-bersih" l="Kekayaan bersih hari ini" v={kini.bersih} m />
+                            </> : <div className="px-3 py-3 text-gray-500 text-[12.5px]">Isi <b>titik mulai</b> Posisi Uang dulu (di bawah) agar saldo hari ini terbaca.</div>}
+                        </div>
+                    </div>
+                    {ada ? (
+                        <div data-nr-cek={Math.round(selisih)} data-nr-pas={pas ? '1' : '0'} className="rounded-xl bg-blue-50 border border-blue-100 p-3 space-y-1 text-[13px] tabular-nums">
+                            <div className="font-black text-blue-900">Cek "pas": untung harus sama dengan kenaikan kekayaan bersih</div>
+                            <div className="flex justify-between gap-2"><span className="min-w-0">Kekayaan bersih hari ini − awal</span><b data-nr-naik={Math.round(naik)} className="whitespace-nowrap">{fRp(naik)}</b></div>
+                            <div className="flex justify-between gap-2"><span className="min-w-0">Untung / rugi sejak {urNamaBulan(bulanBuku)} (dari semua transaksi)</span><b data-nr-laba={Math.round(laba)} className="whitespace-nowrap">{fRp(laba)}</b></div>
+                            {belumRekap > 0.5 && <div className="flex justify-between gap-2"><span className="min-w-0">Upah sudah dihitung tetapi belum direkap (belum jadi hutang gaji)</span><b data-nr-belum-rekap={Math.round(belumRekap)} className="whitespace-nowrap">{fRp(belumRekap)}</b></div>}
+                            <div className="flex justify-between gap-2 border-t-2 border-blue-700 pt-1 font-black"><span className="min-w-0">Selisih (belum tercatat)</span><span data-nr-selisih={Math.round(selisih)} className={`whitespace-nowrap ${pas ? 'text-emerald-700' : 'text-amber-700'}`}>{pas ? '✅ ' : '⚠ '}{fRp(selisih)}{persenSel != null ? ` · ${persenSel.toLocaleString('id-ID', { maximumFractionDigits: 1 })}%` : ''}</span></div>
+                            <div className="text-[12px] text-gray-600 leading-relaxed font-sans">
+                                {pas ? '✅ Pembukuan sejak tanggal mulai sudah lengkap (selisih kecil).'
+                                    : selisih < 0 ? `Kekayaan naik ${fRp(Math.abs(selisih))} lebih SEDIKIT dari untung tercatat → ada uang keluar yang belum diinput (bahan, gaji, biaya), uang diambil pemilik, atau saldo awal kurang tepat.`
+                                    : `Kekayaan naik ${fRp(selisih)} lebih BANYAK dari untung tercatat → ada pemasukan yang belum diinput, biaya tercatat dobel, upah order dihitung lebih besar dari rekap gaji, atau saldo awal kurang tepat.`}
+                                {pas ? '' : ' Cari asalnya per bulan lewat "Cocokkan saldo".'} Upah dari order dihitung saat order diinput, jadi bisa sedikit berbeda dengan rekap gaji.
+                            </div>
+                        </div>
+                    ) : (
+                        <div data-nr-belum className="text-[12.5px] bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
+                            {!awal.adaKas
+                                ? <>ⓘ Isi <b>saldo rekening + tunai sungguhan per {tglAwal}</b> {simpan ? <>(tombol "Isi saldo awal" di atas)</> : <>(oleh Admin)</>} agar cek "pas" bisa dihitung.</>
+                                : <>ⓘ Cek "pas" muncul setelah titik mulai Posisi Uang diisi.</>}
+                        </div>
+                    )}
+                    {neraca.oleh && awal.adaKas && <div className="text-[11px] text-gray-400">Saldo awal diisi oleh {neraca.oleh}{neraca.at ? ` · ${fmtTglStruk(String(neraca.at).slice(0, 10))}` : ''}</div>}
+                </div>
+            );
+        };
+        const UntungRugiPosisi = ({ orders, employees, invoices, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, driverRekapGaji, driverTransactions = [], drivers = [], danaOperasional, templates, absensiRawLogs, absensiEdits, posisiInfo = null, selisihLama = 0, slDari = '', slDariSaldoAwal = false, tglMulai = '', mulaiAt = '', namaPencetak = '', showToast, mulaiBuku = '', neraca = null }) => {
             // Dihitung SESUDAH halaman tampil (tidak memperlambat saat Laporan Keuangan dibuka). Saat data berubah,
             // angka lama tetap tampil sampai hitungan baru selesai.
             const [per, setPer] = React.useState(null);
@@ -19227,21 +19341,37 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return () => clearTimeout(id);
             }, [orders, employees, invoices, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, driverRekapGaji, driverTransactions, drivers, danaOperasional, templates, absensiRawLogs, absensiEdits, selisihLama, slDari, tglMulai, mulaiAt]);
             if (!per) return <UntungRugiMemuat />;
-            return <UntungRugiIsi per={per} templates={templates} posisiInfo={posisiInfo} selisihLama={selisihLama} slDari={slDari} slDariSaldoAwal={slDariSaldoAwal} tglMulai={tglMulai} namaPencetak={namaPencetak} showToast={showToast} />;
+            return <UntungRugiIsi perSemua={per} templates={templates} posisiInfo={posisiInfo} selisihLama={selisihLama} slDari={slDari} slDariSaldoAwal={slDariSaldoAwal} tglMulai={tglMulai} namaPencetak={namaPencetak} showToast={showToast} mulaiBuku={mulaiBuku} neraca={neraca} />;
         };
         const UntungRugiMemuat = () => (
             <div data-ur-memuat className="flex items-center gap-3 text-sm text-gray-500 py-6 justify-center"><IconRefresh spinning={true} /> Menghitung untung / rugi…</div>
         );
-        const UntungRugiIsi = ({ per, templates, posisiInfo = null, selisihLama = 0, slDari = '', slDariSaldoAwal = false, tglMulai = '', namaPencetak = '', showToast }) => {
+        const UntungRugiIsi = ({ perSemua, templates, posisiInfo = null, selisihLama = 0, slDari = '', slDariSaldoAwal = false, tglMulai = '', namaPencetak = '', showToast, mulaiBuku = '', neraca = null }) => {
             const hariIni = toLocalDateStr();
             const tahunIni = hariIni.slice(0, 4);
             const bulanIni = hariIni.slice(0, 7);
+            // Tanggal mulai pembukuan: bulan sebelum itu tidak dihitung (kecuali pengguna memilih "Tampilkan data lama")
+            const bulanBuku = /^\d{4}-\d{2}/.test(String(mulaiBuku || '')) ? String(mulaiBuku).slice(0, 7) : '';
+            const [tampilLama, setTampilLama] = React.useState(false);
+            const per = React.useMemo(() => {
+                if (!bulanBuku || tampilLama) return perSemua;
+                const m = new Map([...perSemua.entries()].filter(([b]) => b >= bulanBuku));
+                m.catatan = perSemua.catatan;
+                return m;
+            }, [perSemua, bulanBuku, tampilLama]);
             // Periode: 'awal' (sejak awal pakai aplikasi — bawaan) · 'thn:YYYY' (setahun) · 'n:3|6|12' (N bulan terakhir, bulan ini ikut)
             //          · 'satu' (satu bulan) · 'rentang' (dari–sampai, boleh lintas tahun)
             const [periode, setPeriode] = React.useState('awal');
             // Bulan awal = awal rangkaian bulan berdata yang terakhir (jeda kosong ≤ 2 bulan masih dianggap bersambung).
             // Catatan yang jauh lebih awal (mis. salah ketik tahun) tidak menggeser awal periode — diberi tanda untuk diperiksa.
             const awalPakai = React.useMemo(() => {
+                // Tanggal mulai pembukuan dipakai bila ada
+                if (bulanBuku) {
+                    const cat = safeArray(perSemua.catatan);
+                    const lebih = cat.filter(c => c.tgl.slice(0, 7) < bulanBuku);
+                    const pertama = cat.find(c => c.tgl.slice(0, 7) >= bulanBuku && c.tgl.slice(0, 7) <= bulanIni);
+                    return { bulan: bulanBuku <= bulanIni ? bulanBuku : bulanIni, tglPertama: pertama ? pertama.tgl : '', lebihAwal: lebih, bulanTerawal: lebih.length ? lebih[0].tgl.slice(0, 7) : bulanBuku, dariBuku: true };
+                }
                 const aktif = [...per.keys()].filter(b => /^\d{4}-\d{2}$/.test(b) && b <= bulanIni).sort();
                 if (!aktif.length) return { bulan: bulanIni, tglPertama: '', lebihAwal: [] };
                 // Utama: waktu data PERTAMA KALI DIINPUT ke aplikasi (kode otomatis tiap catatan, tidak bisa diubah).
@@ -19262,7 +19392,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const cat = safeArray(per.catatan);
                 const pertama = cat.find(c => c.tgl.slice(0, 7) >= mulai && c.tgl.slice(0, 7) <= bulanIni);
                 return { bulan: mulai, tglPertama: pertama ? pertama.tgl : '', lebihAwal: cat.filter(c => c.tgl.slice(0, 7) < mulai), bulanTerawal: aktif[0] };
-            }, [per, bulanIni]);
+            }, [per, perSemua, bulanBuku, bulanIni]);
             const [bulanSatu, setBulanSatu] = React.useState(bulanIni);
             const [rDari, setRDari] = React.useState(urGeserBulan(bulanIni, -5));
             const [rSampai, setRSampai] = React.useState(bulanIni);
@@ -19294,9 +19424,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             }, [per, awal, akhir]);
             const ingat = React.useMemo(() => {
                 let jml = 0, n = 0, thnAkhir = '';
-                per.forEach((o, b) => { if (b < awalPeriode && o.invBelum > 0) { jml += o.invBelum; n += o.nInvBelum; if (b.slice(0, 4) > thnAkhir) thnAkhir = b.slice(0, 4); } });
+                perSemua.forEach((o, b) => { if (b < awalPeriode && o.invBelum > 0) { jml += o.invBelum; n += o.nInvBelum; if (b.slice(0, 4) > thnAkhir) thnAkhir = b.slice(0, 4); } });
                 return { jml, n, thnAkhir };
-            }, [per, awalPeriode]);
+            }, [perSemua, awalPeriode]);
             const bulanAktif = bulanGrafik.filter(b => Math.abs(b.pendapatan) + Math.abs(b.produksi + b.usaha) > 0);
             const terbaik = bulanAktif.length ? bulanAktif.reduce((a, b) => b.laba > a.laba ? b : a) : null;
             const nUntung = bulanAktif.filter(b => b.laba >= 0).length;
@@ -19306,7 +19436,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const persen = (v, d = 1) => `${(Math.round(v * 10 ** d) / 10 ** d).toLocaleString('id-ID')}%`;
             const sdHari = (b) => b === bulanIni ? ` (s.d. ${Number(hariIni.slice(8, 10))})` : ''; // bulan berjalan belum penuh
             const labelPeriode = periode === 'awal'
-                ? `Sejak awal pakai aplikasi: ${satuBulan ? `${urNamaBulan(awal)}${sdHari(awal)}` : `${urNamaBulan(awal)} – ${urNamaBulan(akhir)}${sdHari(akhir)}`}`
+                ? `${awalPakai.dariBuku ? 'Sejak mulai pembukuan' : 'Sejak awal pakai aplikasi'}: ${satuBulan ? `${urNamaBulan(awal)}${sdHari(awal)}` : `${urNamaBulan(awal)} – ${urNamaBulan(akhir)}${sdHari(akhir)}`}`
                 : periode.startsWith('thn:')
                 ? `${tahun}${tahun === tahunIni ? ` (Jan – ${UR_BLN[Number(bulanIni.slice(5, 7)) - 1]} s.d. ${Number(hariIni.slice(8, 10))})` : ''}`
                 : satuBulan ? `${urNamaBulan(awal)}${sdHari(awal)}` : `${urNamaBulan(awal)} – ${urNamaBulan(akhir)}${sdHari(akhir)}`;
@@ -19329,7 +19459,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const dasarKomposisi = Math.max(t.pendapatan, komposisi.reduce((s, x) => s + x.v, 0)) || 1;
             const per100 = (v) => Math.round(v / (t.pendapatan || 1) * 100000 / 100) * 100;
             const gantiPeriode = (v) => { setPeriode(v); setKembaliKe(null); };
-            const lihatTahun = (th) => gantiPeriode(`thn:${th}`);
+            const lihatTahun = (th) => { if (bulanBuku && `${th}-01` < bulanBuku) setTampilLama(true); gantiPeriode(`thn:${th}`); };
+            const dataLamaPerMenu = (list) => Object.entries(safeArray(list).reduce((a, c) => { a[c.menu] = (a[c.menu] || 0) + 1; return a; }, {})).map(([m, n]) => `${m} ${n}`).join(' · ');
             // Ketuk batang: buka rincian bulan itu; ketuk lagi: kembali ke periode sebelumnya
             const ketukBulan = (b) => {
                 if (periode === 'satu' && bulanSatu === b && kembaliKe) { setPeriode(kembaliKe); setKembaliKe(null); return; }
@@ -19354,7 +19485,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     ${baris(`Uang di customer (${t.nInvBelum} invoice)`, t.invBelum)}
                     ${baris(`Hutang ke vendor bahan (${t.nNotaBelum} nota)`, t.bahanBelum)}
                     ${p ? baris('Gaji & komisi belum dibayar', p.gajiKomisiBelum) : ''}</table>`;
-                const ingatHtml = ingat.jml > 0.5 ? `<br><b>Pengingat:</b> masih ada tagihan invoice ${kataSebelum} belum dibayar Rp ${n(ingat.jml)} (${ingat.n} invoice) — tidak termasuk laporan ini.` : '';
+                const ingatHtml = ingat.jml > 0.5 ? (bulanBuku && !tampilLama && awalPeriode <= bulanBuku
+                    ? `<br><b>Pengingat:</b> masih ada piutang invoice lama (sebelum mulai pembukuan) Rp ${n(ingat.jml)} (${ingat.n} invoice) — bukan pendapatan periode ini.`
+                    : `<br><b>Pengingat:</b> masih ada tagihan invoice ${kataSebelum} belum dibayar Rp ${n(ingat.jml)} (${ingat.n} invoice) — tidak termasuk laporan ini.`) : '';
                 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${e(namaFileCetak('Laporan Untung Rugi', labelPeriode))}</title><style>
                     @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;font-size:11.5px;line-height:1.4;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
                     .kop{display:flex;align-items:center;gap:12px;border-bottom:3px double #111;padding-bottom:8px}.kop img{max-height:50px;max-width:110px}
@@ -19449,7 +19582,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                         <div className="flex flex-wrap items-center gap-2 ml-auto">
                             <select data-ur-periode value={periode} onChange={e => gantiPeriode(e.target.value)} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">
-                                <option value="awal">Sejak awal pakai aplikasi ({urNamaBulan(awalPakai.bulan)})</option>
+                                <option value="awal">{awalPakai.dariBuku ? 'Sejak mulai pembukuan' : 'Sejak awal pakai aplikasi'} ({urNamaBulan(awalPakai.bulan)})</option>
                                 {daftarTahun.map(th => <option key={th} value={`thn:${th}`}>{th === tahunIni ? `Tahun ini (${th})` : `Tahun ${th}`}</option>)}
                                 <option value="n:3">3 bulan terakhir</option>
                                 <option value="n:6">6 bulan terakhir</option>
@@ -19463,7 +19596,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                     </div>
                     <div data-ur-label className="text-[12.5px] text-gray-500 -mt-1">Menampilkan: <b className="text-gray-800">{labelPeriode}</b> · {bulanGrafik.length} bulan{periode === 'awal' && awalPakai.tglInput ? <> · data pertama diinput <b data-ur-tgl-input={awalPakai.tglInput} className="text-gray-800">{fmtTglStruk(awalPakai.tglInput)}</b></> : periode === 'awal' && awalPakai.tglPertama ? <> · transaksi pertama <b data-ur-tgl-pertama={awalPakai.tglPertama} className="text-gray-800">{fmtTglStruk(awalPakai.tglPertama)}</b></> : null}</div>
-                    {periode === 'awal' && awalPakai.lebihAwal.length > 0 && (
+                    {bulanBuku && !tampilLama && periode === 'awal' && awalPakai.lebihAwal.length > 0 && (
+                        <div data-ur-data-lama={awalPakai.lebihAwal.length} className="text-[12.5px] leading-relaxed bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700">
+                            📒 Mulai pembukuan <b>{fmtTglStruk(`${bulanBuku}-01`)}</b>. Ada <b>{awalPakai.lebihAwal.length} catatan data lama</b> ({urNamaBulan(awalPakai.bulanTerawal)} – {urNamaBulan(urGeserBulan(bulanBuku, -1))}) — tetap tersimpan, tetapi <b>tidak dihitung</b> sebagai pendapatan / biaya. Sisa invoice lama yang belum lunas menjadi <b>piutang awal</b>, sisa nota lama menjadi <b>hutang awal</b>.
+                            <div data-ur-data-lama-menu className="mt-1 text-slate-500">{dataLamaPerMenu(awalPakai.lebihAwal)}</div>
+                            <button type="button" data-ur-tampil-lama onClick={() => { setTampilLama(true); setRDari(awalPakai.bulanTerawal); setRSampai(bulanIni); gantiPeriode('rentang'); }} className="mt-1 font-black underline">Tampilkan data lama</button>
+                        </div>
+                    )}
+                    {bulanBuku && tampilLama && (
+                        <div data-ur-lama-tampil className="text-[12.5px] leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
+                            ⚠ Sedang menampilkan <b>data lama</b> (sebelum {fmtTglStruk(`${bulanBuku}-01`)}) — pengeluaran zaman itu tidak lengkap diinput, jadi angka bulan-bulan itu hanya perkiraan.{' '}
+                            <button type="button" data-ur-sembunyi-lama onClick={() => { setTampilLama(false); gantiPeriode('awal'); }} className="font-black underline">Sembunyikan data lama</button>
+                        </div>
+                    )}
+                    {!bulanBuku && periode === 'awal' && awalPakai.lebihAwal.length > 0 && (
                         <div data-ur-lebih-awal={awalPakai.lebihAwal.length} className="text-[12.5px] leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
                             {awalPakai.dariInput
                                 ? <>ⓘ Ada <b>{awalPakai.lebihAwal.length} catatan</b> bertanggal sebelum aplikasi dipakai ({urNamaBulan(awalPakai.bulanTerawal)} – {urNamaBulan(urGeserBulan(awalPakai.bulan, -1))}) — transaksi lama yang diinput belakangan. Tidak ikut "Sejak awal pakai aplikasi".</>
@@ -19546,7 +19692,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                         {ingat.jml > 0.5 && (
                             <div data-ur-ingat={Math.round(ingat.jml)} className="mt-3 text-[12.5px] leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
-                                ⓘ Masih ada <b>tagihan invoice {kataSebelum} {fRp(ingat.jml)}</b> ({ingat.n} invoice{ingat.thnAkhir ? `, terakhir tahun ${ingat.thnAkhir}` : ''}) — tidak dijumlahkan di sini.{' '}
+                                {bulanBuku && !tampilLama && awalPeriode <= bulanBuku
+                                    ? <>ⓘ Masih ada <b>piutang invoice lama {fRp(ingat.jml)}</b> ({ingat.n} invoice sebelum mulai pembukuan) — bukan pendapatan periode ini; bila dibayar, kas bertambah sebagai pelunasan piutang. Tetap ditagih lewat menu Invoice.{' '}</>
+                                    : <>ⓘ Masih ada <b>tagihan invoice {kataSebelum} {fRp(ingat.jml)}</b> ({ingat.n} invoice{ingat.thnAkhir ? `, terakhir tahun ${ingat.thnAkhir}` : ''}) — tidak dijumlahkan di sini.{' '}</>}
                                 <button type="button" data-ur-ingat-lihat onClick={() => lihatTahun(ingat.thnAkhir || tahun)} className="font-black underline">Lihat tahun {ingat.thnAkhir || tahun} ›</button>
                             </div>
                         )}
@@ -19588,6 +19736,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <br />💡 Tekan <b>"Cocokkan saldo"</b> ± seminggu sekali agar selisih berikutnya langsung tercatat di bulan yang benar.
                         </div>
                     )}
+                    {neraca && bulanBuku && <NeracaRingkas neraca={neraca} perSemua={perSemua} bulanIni={bulanIni} />}
                     <div className="text-[12px] text-gray-400 leading-relaxed px-1">⚠ Perkiraan: upah dihitung saat order diinput, pendapatan saat invoice terbit — order yang baru di-invoice bulan berikutnya membuat untung bulan itu terlihat lebih kecil. Per tahun hasilnya seimbang.</div>
                 </div>
             );
@@ -20482,6 +20631,68 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
             posisiBayar.total = posisiBayar.vendor + posisiBayar.biaya + posisiBayar.gaji + posisiBayar.komisi + posisiBayar.bagiHasil + posisiBayar.talangan + posisiBayar.dpTitipan;
             const posisiBersih = posisiPegang == null ? null : posisiPegang + posisiCustomer.total - posisiBayar.total;
+            // ===== Neraca ringkas: saldo awal (tanggal mulai pembukuan) vs hari ini =====
+            // Saldo awal: rekening + tunai + dana karyawan diisi Admin sekali; piutang & hutang awal dihitung otomatis
+            // dari data lama (sisa per tanggal mulai = nilai − pembayaran SEBELUM tanggal mulai).
+            const mulaiBuku = bacaMulaiBuku(templates);
+            const neracaInfo = (() => {
+                if (activeFinanceTab !== 'posisi-uang' || !mulaiBuku) return null;
+                const D = mulaiBuku;
+                const sblm = (t) => /^\d{4}-\d{2}-\d{2}/.test(String(t || '')) && String(t).slice(0, 10) < D;
+                const jml = (arr, f) => arr.reduce((x, v) => x + safeMoney(f(v)), 0);
+                const invLama = safeFinanceInvoices.filter(isVisibleRecord).filter(inv => sblm(inv.date));
+                const sisaInvAwal = (inv) => {
+                    const dp = getInvoiceDp(inv);
+                    const dpAwal = sblm(dp.date || inv.date) ? safeMoney(dp.amount) : 0;
+                    const bayar = jml(getInvoicePayments(inv).filter(p => sblm(p.date || inv.date)), p => p.amount);
+                    return Math.max(0, safeMoney(getInvoiceTotals(inv).total) - dpAwal - bayar - getInvoiceLinkedDpAmount(inv));
+                };
+                const piutangList = invLama.map(sisaInvAwal).filter(v => v > 0.5);
+                const piutang = piutangList.reduce((x, v) => x + v, 0);
+                const kasbon = jml(allCashAdvanceRows.filter(r => sblm(r.date)), r => r.remaining) + jml(allDriverKasbon.filter(k => sblm(k.tanggal)), k => Math.max(0, safeMoney(k.jumlah) - safeMoney(k.sudahDipotong)));
+                const notaLama = allUnifiedNotes.filter(n => sblm(n.date));
+                const sisaNotaAwal = (n) => {
+                    if (!Array.isArray(n.payments)) return noteDebt(n); // catatan lama tanpa riwayat bayar
+                    return Math.max(0, noteTotal(n) - n.payments.filter(p => p && sblm(p.date || n.date)).reduce((x, p) => x + (parseFloat(p.amount) || 0), 0));
+                };
+                const vendorList = notaLama.map(sisaNotaAwal).filter(v => v > 0.5);
+                const vendor = vendorList.reduce((x, v) => x + v, 0);
+                const biaya = jml((expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Keluar' && sblm(e.date)), e => Math.max(0, safeMoney(e.amount) - getExpensePaidEvents(e).filter(ev => sblm(ev.date)).reduce((x, ev) => x + ev.amount, 0)));
+                const gajiKar = jml(allWageRows.filter(r => sblm(r.date)), r => Math.max(0, r.netSalary - getWagePaidEvents(r).filter(ev => sblm(ev.date)).reduce((x, ev) => x + ev.amount, 0)));
+                const gajiDrv = jml(allDriverRekap.filter(r => sblm(r.tanggalRekap)), r => {
+                    if (drvRekapLama(r)) return 0; // rekap lama = lunas pada tanggal rekap
+                    const bayar = drvRekapBayar(r);
+                    if (drvRekapStatus(r) === 'lunas' && !bayar.some(p => !sblm(p.date || r.tanggalRekap))) return 0;
+                    return Math.max(0, drvRekapNet(r) - bayar.filter(p => sblm(p.date || r.tanggalRekap)).reduce((x, p) => x + safeMoney(p.amount), 0));
+                });
+                const rekapById = new Map(safeFinanceRekaps.map(r => [String(r.id), r]));
+                const komisi = jml(invLama.filter(inv => {
+                    if (!inv.commissionRekapId) return true;
+                    const rk = rekapById.get(String(inv.commissionRekapId));
+                    return !rk || !isVisibleRecord(rk) || !sblm(rk.dateProcessed);
+                }), inv => getInvoiceCommission(inv));
+                const bagiHasil = jml(safeArray(bagiHasilPromosi).filter(isVisibleRecord).filter(b => sblm(b.tanggal)), b => Math.max(0, calcBagiHasil(b, safeFinanceInvoices).nominal - safeArray(b.payments).filter(p => sblm(p.date || b.tanggal)).reduce((x, p) => x + safeMoney(p.amount), 0)));
+                const dpMasuk = jml((clients || []).filter(isVisibleRecord).flatMap(c => safeArray(c.clientDpPayments).filter(isVisibleRecord)).filter(dp => sblm(dp.date)), dp => dp.amount);
+                const dpTitipan = Math.max(0, dpMasuk - jml(invLama, inv => getInvoiceLinkedDpAmount(inv)));
+                const pb = templates?.pembukuan || {};
+                const adaKas = pb.mulai === D && Number.isFinite(Number(pb.rekening)) && Number.isFinite(Number(pb.tunai)) && pb.rekening !== '' && pb.rekening != null && pb.tunai !== '' && pb.tunai != null;
+                const rekening = adaKas ? safeMoney(pb.rekening) : null;
+                const tunai = adaKas ? safeMoney(pb.tunai) : null;
+                const dana = adaKas ? safeMoney(pb.dana) : 0;
+                const kewajiban = { vendor, biaya, gaji: gajiKar + gajiDrv, komisi, bagiHasil, dpTitipan };
+                kewajiban.total = vendor + biaya + gajiKar + gajiDrv + komisi + bagiHasil + dpTitipan;
+                const awal = { tanggal: D, adaKas, rekening, tunai, kas: adaKas ? rekening + tunai : null, dana, piutang, nPiutang: piutangList.length, kasbon, kewajiban, nNota: vendorList.length };
+                awal.harta = adaKas ? awal.kas + dana + piutang + kasbon : null;
+                awal.bersih = adaKas ? awal.harta - kewajiban.total : null;
+                const kini = saldoAkun ? { kas: saldoAkun.rekening + saldoAkun.tunai, dana: danaKaryawan.pegang, piutang: posisiCustomer.piutang, kasbon: posisiCustomer.kasbon, kewajiban: { ...posisiBayar } } : null;
+                if (kini) { kini.harta = kini.kas + kini.dana + kini.piutang + kini.kasbon; kini.bersih = kini.harta - kini.kewajiban.total; }
+                const simpan = bolehAturPosisi ? (isi) => {
+                    const now = new Date().toISOString();
+                    setTemplates(prev => ({ ...(prev || {}), pembukuan: { mulai: isi.mulai, rekening: Math.round(safeMoney(isi.rekening)), tunai: Math.round(safeMoney(isi.tunai)), dana: Math.round(safeMoney(isi.dana)), oleh: authUser?.name || authUser?.username || '-', at: now } }));
+                    showToast('Saldo awal pembukuan disimpan.', 'success');
+                } : null;
+                return { mulai: D, awal, kini, simpan, isian: pb, oleh: pb.oleh || '', at: pb.at || '' };
+            })();
             // Pengaman: rekening + tunai + dana karyawan (bersih) harus sama dengan saldo Buku Kas
             const selisihBukuKas = saldoAkun ? Math.round((saldoAkun.rekening + saldoAkun.tunai + danaKaryawan.pegang - danaKaryawan.hutang) - kasHariIni) : 0;
             const piutangLama = (umurPiutang[3] || {}).nilai || 0;
@@ -20665,7 +20876,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="bg-gray-50 rounded-2xl border border-gray-100 p-3 sm:p-4 mb-4">
                                 <UntungRugiPosisi orders={orders} employees={employees} invoices={invoices} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} driverRekapGaji={driverRekapGaji} driverTransactions={driverTransactions} drivers={drivers} danaOperasional={danaOperasional} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits}
                                     posisiInfo={saldoAkun ? { rekening: saldoAkun.rekening, tunai: saldoAkun.tunai, dana: danaKaryawan.pegang, pegang: posisiPegang, gajiKomisiBelum: posisiBayar.gaji + posisiBayar.komisi } : null}
-                                    selisihLama={posisiUang ? penyesuaianAwal : 0} slDari={kasDariPosisi || tglKasPertama} slDariSaldoAwal={!!kasDariPosisi} tglMulai={posisiUang ? posisiUang.mulai.tanggal : ''} mulaiAt={posisiUang ? posisiUang.mulai.at || '' : ''} namaPencetak={authUser?.name || authUser?.username || ''} showToast={showToast} />
+                                    mulaiBuku={mulaiBuku} neraca={neracaInfo}
+                                    selisihLama={posisiUang && !mulaiBuku ? penyesuaianAwal : 0} slDari={kasDariPosisi || tglKasPertama} slDariSaldoAwal={!!kasDariPosisi} tglMulai={posisiUang ? posisiUang.mulai.tanggal : ''} mulaiAt={posisiUang ? posisiUang.mulai.at || '' : ''} namaPencetak={authUser?.name || authUser?.username || ''} showToast={showToast} />
                             </div>
                             <div data-posisi-uang className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5">
                                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
