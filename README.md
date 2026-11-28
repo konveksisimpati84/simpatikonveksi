@@ -297,8 +297,9 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   dana miliknya sendiri. Data lama tidak berubah.
 - **Link Laporan Marketing** (`#marketing-share=`): tab bawaan **Perlu ditagih** — kotak atas sisa tagihan + Total
   tagihan / Sudah dibayar / Sisa + bilah persen terbayar + pembagian umur (> 60 / 31–60 / ≤ 30 hari). Kartu per customer
-  (urut sisa terbesar / paling lama / A–Z); tiap invoice ditulis seperti nota: total − DP / saldo DP dipakai / bayar ke-n
-  (tanggal, cara) = sisa. Tombol **Kirim tagihan ke customer (WA)** + **Salin** (pesan berisi total, sudah dibayar, sisa
+  (urut sisa terbesar / paling lama / A–Z): kepala hijau tua (nama, jumlah invoice, umur, sisa), lalu tiap invoice di kartu
+  terpisah bernomor 1, 2, … dengan keterangan pesanan (jenis pertama + jenis lain · total pcs) dan hitungan seperti nota:
+  total − DP / saldo DP dipakai / bayar ke-n (tanggal, cara) = sisa, lalu ringkasan & tombol kirim di bawah. Tombol **Kirim tagihan ke customer (WA)** + **Salin** (pesan berisi total, sudah dibayar, sisa
   per invoice + link tagihan). Tab **Semua invoice** tetap ada (kotak Termin = sisa).
 - **Link tagihan invoice otomatis**: invoice baru langsung punya `invoiceShareToken`; invoice lama yang belum pernah
   dibuatkan link diberi kode sekali di latar belakang saat Admin membuka aplikasi. Kode `null` (link sengaja dicabut)

@@ -17651,6 +17651,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const linkTagihan = (inv) => inv && inv.invoiceShareToken ? `${window.location.origin}${window.location.pathname}#invoice-share=${encodeURIComponent(inv.invoiceShareToken)}` : '';
             const tglPanjang = (d) => fmtTglStruk(d);
             const judulInv = (inv) => `Invoice ${tglPanjang(inv.date)}`;
+            // Keterangan pesanan dari isi invoice: jenis pertama (+ jumlah jenis lain) · total pcs
+            const pesananInv = (inv) => {
+                const jenis = [...new Set(getInvoiceItems(inv).map(it => String((it && (it.productionType || it.name)) || '').trim()).filter(Boolean))];
+                const pcs = getInvoicePcsTotal(inv);
+                const nama = jenis.length ? `${jenis[0]}${jenis.length > 1 ? ` + ${jenis.length - 1} jenis lain` : ''}` : 'Pesanan';
+                return pcs > 0 ? `${nama} · ${pcs.toLocaleString('id-ID')} pcs` : nama;
+            };
             const rincianBayarInv = (inv) => {
                 const dp = getInvoiceDp(inv);
                 const out = [];
@@ -17684,7 +17691,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const sapa = punyaSapaan(c.nama) ? `*${c.nama}*` : `Bapak/Ibu *${c.nama}*`;
                 return [`Assalamu'alaikum, ${sapa}.`, ``, `Berikut rincian tagihan dari Simpati Konveksi:`, ``,
                     ...c.list.flatMap((x, i) => [
-                        `${c.list.length > 1 ? `${i + 1}. ` : ''}${judulInv(x.inv)}`,
+                        `${c.list.length > 1 ? `${i + 1}. ` : ''}${pesananInv(x.inv)} (${judulInv(x.inv)})`,
                         `Total: ${rpWa(x.total)}`,
                         ...(x.paid > 0.5 ? [`Sudah dibayar: ${rpWa(x.paid)}${x.bayar.length > 1 ? ` (${x.bayar.length}×)` : ''}`] : []),
                         `Sisa: *${rpWa(x.sisa)}*`,
@@ -17745,40 +17752,51 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     const buka = !!bukaCust[c.k] || c.list.length <= 3;
                                     const pesan = pesanTagihCust(c);
                                     return (
-                                        <div key={c.k} data-mk-cust={c.nama} className={`bg-white rounded-2xl border border-gray-100 border-l-4 shadow-sm overflow-hidden ${c.umur > 60 ? 'border-l-red-600' : c.umur > 30 ? 'border-l-amber-500' : 'border-l-sky-500'}`}>
-                                            <div className="p-3.5 space-y-2">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="font-black text-gray-800 break-words">{c.nama}</div>
-                                                        <div className="text-xs text-gray-500 mt-0.5">{c.list.length} invoice belum lunas · tertua <span data-mk-cust-umur={c.umur} className={`inline-block rounded-full px-2 py-0.5 font-bold ${warnaUmur(c.umur)}`}>{c.umur} hari</span></div>
-                                                    </div>
-                                                    <div data-mk-cust-sisa={Math.round(c.sisa)} className="font-black text-orange-700 tabular-nums whitespace-nowrap">{fmtRp(c.sisa)}</div>
+                                        <div key={c.k} data-mk-cust={c.nama} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                                            {/* Kepala: nama customer + sisa */}
+                                            <div data-mk-cust-kepala className="bg-emerald-900 text-white px-3.5 py-2.5 flex items-center justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="font-black text-[15px] break-words leading-snug">{c.nama}</div>
+                                                    <div className="text-[11px] text-white/80 mt-0.5">{c.list.length} invoice belum lunas · tertua <span data-mk-cust-umur={c.umur} className={`inline-block rounded-full px-1.5 font-bold ${warnaUmur(c.umur)}`}>{c.umur} hari</span></div>
                                                 </div>
-                                                <div className="h-2 rounded-full bg-gray-100 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-green-600 to-green-400" style={{ width: `${persenBayar(c.paid, c.total)}%` }}></div></div>
-                                                <div data-mk-cust-ringkas className="flex flex-wrap justify-between gap-x-3 text-[11.5px] tabular-nums"><span className="text-gray-600">Total {fmtRp(c.total)}</span><span className="text-green-700 font-bold">Dibayar {fmtRp(c.paid)}</span><span className="text-orange-700 font-bold">Sisa {fmtRp(c.sisa)}</span></div>
-                                            </div>
-                                            {buka ? c.list.map(x => (
-                                                <div key={x.inv.id} data-mk-inv={x.inv.id} className="border-t border-gray-100 bg-gray-50/70 px-3.5 py-2.5 space-y-1.5">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <b className="text-[13px] text-gray-800">{judulInv(x.inv)}</b>
-                                                        <span className={`text-[10px] font-black rounded-md px-1.5 py-0.5 whitespace-nowrap ${x.paid > 0.5 ? 'bg-amber-100 text-amber-800' : 'bg-orange-100 text-orange-800'}`}>{x.paid > 0.5 ? 'TERMIN' : 'BELUM BAYAR'}{x.umur != null ? ` · ${x.umur} hari` : ''}</span>
-                                                    </div>
-                                                    <div className="text-[12.5px] tabular-nums space-y-0.5">
-                                                        <div data-mk-inv-total={Math.round(x.total)} className="flex justify-between gap-3 font-bold text-gray-800"><span>Total tagihan</span><span>{fmtRp(x.total)}</span></div>
-                                                        {x.bayar.length === 0 && <div className="text-xs text-gray-400">Belum ada pembayaran</div>}
-                                                        {x.bayar.map((b, i) => (
-                                                            <div key={i} data-mk-bayar={b.jenis} className="flex justify-between gap-3 text-green-700 pl-3 border-l-2 border-dotted border-green-300"><span className="min-w-0">✓ {b.label}{b.date ? ` · ${tglPanjang(b.date)}` : ''}{b.method ? ` · ${b.method}` : ''}</span><span className="shrink-0">− {fmtRp(b.amount)}</span></div>
-                                                        ))}
-                                                        <div data-mk-inv-sisa={Math.round(x.sisa)} className="flex justify-between gap-3 font-black text-orange-700 border-t border-dashed border-gray-300 pt-1 mt-1"><span>Sisa</span><span>{fmtRp(x.sisa)}</span></div>
-                                                    </div>
-                                                    <div className="text-[10.5px] text-gray-400 font-mono break-all">{x.inv.id}</div>
+                                                <div className="text-right shrink-0">
+                                                    <div className="text-[9.5px] uppercase tracking-wider text-white/75 font-bold">Sisa</div>
+                                                    <div data-mk-cust-sisa={Math.round(c.sisa)} className="font-black tabular-nums whitespace-nowrap">{fmtRp(c.sisa)}</div>
                                                 </div>
-                                            )) : <button type="button" data-mk-cust-buka onClick={() => setBukaCust(v => ({ ...v, [c.k]: true }))} className="w-full border-t border-gray-100 py-2 text-xs font-bold text-blue-700">Lihat rincian {c.list.length} invoice ›</button>}
-                                            <div className="flex gap-2 p-3 border-t border-gray-100">
-                                                <a data-mk-kirim href={`https://api.whatsapp.com/send?text=${encodeURIComponent(pesan)}`} target="_blank" rel="noopener noreferrer" className="flex-1 text-center rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-black py-2">💬 Kirim tagihan ke customer</a>
-                                                <button type="button" data-mk-salin onClick={() => salinPesan(pesan)} className="rounded-xl border border-gray-200 bg-white px-3 text-xs font-bold text-gray-600">🔗 Salin</button>
                                             </div>
-                                            {!adaLink && <div data-mk-tanpa-link className="px-3 pb-3 -mt-1 text-[11px] text-gray-400">Link tagihan sedang disiapkan — akan muncul setelah Admin membuka aplikasi. Pesan tetap berisi rincian tagihan.</div>}
+                                            {/* Isi: tiap invoice di kartu terpisah bernomor */}
+                                            <div className="bg-emerald-50/60 p-2.5 space-y-2.5">
+                                                {buka ? c.list.map((x, i) => (
+                                                    <div key={x.inv.id} data-mk-inv={x.inv.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                                        <div className="flex items-center gap-2 px-2.5 py-2 border-b border-gray-100">
+                                                            <span data-mk-inv-no={i + 1} className="shrink-0 w-6 h-6 rounded-md bg-emerald-100 text-emerald-800 font-black text-xs flex items-center justify-center">{i + 1}</span>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div data-mk-inv-pesanan className="font-black text-[13px] text-gray-800 break-words leading-snug">{pesananInv(x.inv)}</div>
+                                                                <div className="text-[11px] text-gray-500">{judulInv(x.inv)}{x.umur != null ? <> · <span className={`inline-block rounded-full px-1.5 font-bold ${warnaUmur(x.umur)}`}>{x.umur} hari</span></> : null}</div>
+                                                            </div>
+                                                            <span className={`shrink-0 text-[10px] font-black rounded-md px-1.5 py-0.5 whitespace-nowrap ${x.paid > 0.5 ? 'bg-amber-100 text-amber-800' : 'bg-orange-100 text-orange-800'}`}>{x.paid > 0.5 ? 'TERMIN' : 'BELUM BAYAR'}</span>
+                                                        </div>
+                                                        <div className="px-2.5 py-2 text-[12.5px] tabular-nums space-y-0.5">
+                                                            <div data-mk-inv-total={Math.round(x.total)} className="flex justify-between gap-3 font-bold text-gray-800"><span>Total tagihan</span><span>{fmtRp(x.total)}</span></div>
+                                                            {x.bayar.length === 0 && <div className="text-[11.5px] text-gray-400">Belum ada pembayaran</div>}
+                                                            {x.bayar.map((b, j) => (
+                                                                <div key={j} data-mk-bayar={b.jenis} className="flex justify-between gap-3 text-green-700 text-[12px]"><span className="min-w-0">✓ {b.label}{b.date ? ` · ${tglPanjang(b.date)}` : ''}{b.method ? ` · ${b.method}` : ''}</span><span className="shrink-0">− {fmtRp(b.amount)}</span></div>
+                                                            ))}
+                                                            <div data-mk-inv-sisa={Math.round(x.sisa)} className="flex justify-between gap-3 font-black text-orange-700 border-t border-dashed border-gray-300 pt-1 mt-1"><span>Sisa</span><span>{fmtRp(x.sisa)}</span></div>
+                                                        </div>
+                                                        {linkTagihan(x.inv) && <a data-mk-lihat href={linkTagihan(x.inv)} target="_blank" rel="noopener noreferrer" className="block text-right px-2.5 pb-2 text-[11.5px] font-black text-sky-700">Lihat tagihan ›</a>}
+                                                    </div>
+                                                )) : <button type="button" data-mk-cust-buka onClick={() => setBukaCust(v => ({ ...v, [c.k]: true }))} className="w-full rounded-xl border border-dashed border-emerald-300 bg-white py-2 text-xs font-bold text-emerald-800">Lihat rincian {c.list.length} invoice ›</button>}
+                                            </div>
+                                            {/* Kaki: ringkasan + kirim */}
+                                            <div className="border-t border-gray-200 p-2.5 space-y-2">
+                                                <div data-mk-cust-ringkas className="flex flex-wrap justify-between gap-x-3 text-[11.5px] tabular-nums"><span className="text-gray-600">Total {fmtRp(c.total)}</span><span className="text-green-700 font-bold">Dibayar {fmtRp(c.paid)}</span><span className="text-orange-700 font-black">Sisa {fmtRp(c.sisa)}</span></div>
+                                                <div className="flex gap-2">
+                                                    <a data-mk-kirim href={`https://api.whatsapp.com/send?text=${encodeURIComponent(pesan)}`} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 break-words leading-tight text-center rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-black py-2 px-2">💬 Kirim tagihan ke {c.nama}</a>
+                                                    <button type="button" data-mk-salin onClick={() => salinPesan(pesan)} className="shrink-0 rounded-xl border border-gray-200 bg-white px-3 text-xs font-bold text-gray-600">🔗 Salin</button>
+                                                </div>
+                                                {!adaLink && <div data-mk-tanpa-link className="text-[11px] text-gray-400">Link tagihan sedang disiapkan — akan muncul setelah Admin membuka aplikasi. Pesan tetap berisi rincian tagihan.</div>}
+                                            </div>
                                         </div>
                                     );
                                 })}
