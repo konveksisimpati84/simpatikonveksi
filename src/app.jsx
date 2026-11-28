@@ -6812,6 +6812,22 @@ ${blocks}
         };
         const sumberDanaEmpId = (v) => String(v || '').startsWith('dana:') ? String(v).slice(5) : '';
         const namaPemegangDana = (empId, employees) => empId ? ((safeArray(employees).find(e => String(e.id) === String(empId)) || {}).name || 'karyawan') : '';
+        // Ringkasan sumber dana pembayaran (gaji rekap, dll): dana operasional karyawan siapa / kas perusahaan. Hanya tampilan.
+        const ringkasSumberBayar = (payments, employees) => {
+            const peta = new Map();
+            safeArray(payments).filter(p => p && safeMoney(p.amount) > 0).forEach(p => {
+                const eid = String(p.operasionalKaryawanId || '');
+                const k = eid || 'kas';
+                const o = peta.get(k) || { key: k, dana: !!eid, label: eid ? `Dana ${namaPemegangDana(eid, employees)}` : 'Kas perusahaan', amount: 0 };
+                o.amount += safeMoney(p.amount); peta.set(k, o);
+            });
+            return [...peta.values()].sort((a, b) => (b.dana - a.dana) || (b.amount - a.amount));
+        };
+        const ChipSumberDana = ({ dana, label, nilai = null, kecil = false }) => (
+            <span data-sumber-dana={dana ? 'dana' : 'kas'} className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border font-bold ${kecil ? 'text-[10.5px] px-1.5 py-px' : 'text-[11.5px] px-2 py-0.5'} ${dana ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                {dana ? '👤' : '🏦'} {label}{nilai != null ? ` ${formatRupiah(Math.round(nilai))}` : ''}
+            </span>
+        );
 
         const KaryawanView = ({ employees, setEmployees, showToast, templates, gajiSensitif = null, danaOperasional = [], purchaseNotes = [], expenses = [], rekapKinerja = [], bagiHasilPromosi = [], bukaKasbonReq = null }) => {
             // Gaji Direksi & Marketing: tanpa "Lihat" -> pengaturan gaji disembunyikan; "Lihat" saja -> terkunci; "Edit" -> bisa diubah
@@ -15205,6 +15221,185 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             );
         };
 
+        // ===== Price List per customer (menu Invoice) — hanya MEMBACA invoice =====
+        // Jenis pesanan yang sama dari semua invoice digabung (beda huruf besar/spasi dianggap sama); per ukuran diambil
+        // harga dari invoice TERBARU (harga/pcs setelah diskon per pcs & diskon %). Bila harga pernah berbeda: naik/turun
+        // + harga sebelumnya & bulannya. Ukuran berurutan dengan harga & riwayat sama digabung jadi satu baris (mis. S – XL).
+        const PL_URUT_UKURAN = { XXS: 1, XS: 2, S: 3, M: 4, L: 5, XL: 6, XXL: 7, '2XL': 7, XXXL: 8, '3XL': 8, '4XL': 9, '5XL': 10, '6XL': 11, '7XL': 12 };
+        const plNorm = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        const plUkuranKey = (v) => String(v || '').toUpperCase().replace(/\s+/g, '').trim();
+        const plRankUkuran = (u) => {
+            if (!u) return 900;
+            if (PL_URUT_UKURAN[u] != null) return 100 + PL_URUT_UKURAN[u];
+            const n = Number(String(u).replace(',', '.'));
+            if (isFinite(n)) return n / 1000; // ukuran angka (anak / celana) di depan
+            return 500;
+        };
+        const plHargaBersih = (sz) => {
+            const harga = safeMoney(sz && sz.pricePerPcs);
+            const setelahPotong = Math.max(0, harga - safeMoney(sz && sz.discountPerPcs));
+            return Math.round(Math.max(0, setelahPotong - setelahPotong * safeMoney(sz && sz.discountPercent) / 100));
+        };
+        const plBulan = (tgl) => { const m = String(tgl || '').match(/^(\d{4})-(\d{2})/); return m ? `${UR_BLN[Number(m[2]) - 1]} ${m[1]}` : '-'; };
+        const susunPriceList = (invoices, clients) => {
+            const klienById = new Map(safeArray(clients).filter(Boolean).map(c => [String(c.id), c]));
+            const custMap = new Map();
+            safeArray(invoices).filter(isVisibleRecord).forEach(inv => {
+                const klien = inv.clientId != null ? klienById.get(String(inv.clientId)) : null;
+                const nama = String((klien && isVisibleRecord(klien) && klien.name) || inv.customer || '').trim();
+                if (!nama) return;
+                const ck = plNorm(nama);
+                const tgl = /^\d{4}-\d{2}-\d{2}/.test(String(inv.date || '')) ? String(inv.date).slice(0, 10) : '';
+                if (!tgl) return;
+                let c = custMap.get(ck); if (!c) { c = { key: ck, nama, namaTgl: '', jenis: new Map(), terakhir: '', nInv: new Set() }; custMap.set(ck, c); }
+                if (tgl >= c.namaTgl) { c.nama = nama; c.namaTgl = tgl; }
+                getInvoiceItems(inv).forEach(item => {
+                    const jNama = String(item.productionType || '').replace(/\s+/g, ' ').trim();
+                    if (!jNama) return;
+                    const jk = plNorm(jNama);
+                    let j = c.jenis.get(jk); if (!j) { j = { key: jk, nama: jNama, namaTgl: '', terakhir: '', ukuran: new Map() }; c.jenis.set(jk, j); }
+                    safeArray(item.sizes).forEach(sz => {
+                        if (!(safeMoney(sz.qty) > 0) || !(safeMoney(sz.pricePerPcs) > 0)) return;
+                        const uk = plUkuranKey(sz.size);
+                        let u = j.ukuran.get(uk); if (!u) { u = { key: uk, label: String(sz.size || '').trim() || 'Semua ukuran', catat: [] }; j.ukuran.set(uk, u); }
+                        u.catat.push({ tgl, harga: plHargaBersih(sz), id: String(inv.id || ''), qty: safeMoney(sz.qty) });
+                        if (tgl >= j.namaTgl) { j.nama = jNama; j.namaTgl = tgl; }
+                        if (tgl > j.terakhir) j.terakhir = tgl;
+                        if (tgl > c.terakhir) c.terakhir = tgl;
+                        c.nInv.add(String(inv.id || tgl));
+                    });
+                });
+            });
+            const hasil = [];
+            custMap.forEach(c => {
+                const jenisList = [];
+                c.jenis.forEach(j => {
+                    if (!j.ukuran.size) return;
+                    const ukList = [...j.ukuran.values()].map(u => {
+                        const cat = u.catat.slice().sort((a, b) => a.tgl.localeCompare(b.tgl) || a.id.localeCompare(b.id));
+                        const akhir = cat[cat.length - 1];
+                        // Kumpulan harga terakhir (bila satu invoice memuat dua harga untuk ukuran sama, ambil yang terbesar qty-nya)
+                        const sama = cat.filter(x => x.tgl === akhir.tgl && x.id === akhir.id);
+                        const harga = sama.reduce((m, x) => x.qty > m.qty ? x : m, sama[0]).harga;
+                        let i = cat.length - 1; while (i >= 0 && cat[i].harga === harga) i--;
+                        let lama = null;
+                        if (i >= 0) {
+                            const hLama = cat[i].harga; let k = i; while (k >= 0 && cat[k].harga === hLama) k--;
+                            lama = { harga: hLama, dari: cat[k + 1].tgl, sampai: cat[i].tgl, sejak: cat[i + 1].tgl };
+                        }
+                        return { key: u.key, label: u.label, rank: plRankUkuran(u.key), harga, lama, n: cat.length };
+                    }).sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
+                    // Gabungkan ukuran berurutan yang harga & riwayatnya sama
+                    const baris = [];
+                    ukList.forEach(u => {
+                        const sig = `${u.harga}|${u.lama ? `${u.lama.harga}|${u.lama.dari.slice(0, 7)}|${u.lama.sampai.slice(0, 7)}` : ''}`;
+                        const b = baris[baris.length - 1];
+                        if (b && b.sig === sig) b.ukuran.push(u); else baris.push({ sig, harga: u.harga, lama: u.lama, ukuran: [u] });
+                    });
+                    baris.forEach(b => {
+                        const L = b.ukuran.map(u => u.label);
+                        b.label = L.length >= 3 ? `${L[0]} – ${L[L.length - 1]}` : L.join(', ');
+                        b.ubah = b.lama ? b.harga - b.lama.harga : 0;
+                    });
+                    jenisList.push({ key: j.key, nama: j.nama, terakhir: j.terakhir, baris });
+                });
+                if (!jenisList.length) return;
+                jenisList.sort((a, b) => b.terakhir.localeCompare(a.terakhir) || a.nama.localeCompare(b.nama));
+                hasil.push({ key: c.key, nama: c.nama, terakhir: c.terakhir, nInv: c.nInv.size, jenis: jenisList, nUbah: jenisList.reduce((t, j) => t + j.baris.filter(b => b.lama).length, 0) });
+            });
+            return hasil.sort((a, b) => b.terakhir.localeCompare(a.terakhir) || a.nama.localeCompare(b.nama));
+        };
+        const teksPriceListWa = (c, templates) => {
+            const rp = (n) => `Rp ${Math.round(n).toLocaleString('id-ID')}`;
+            const isi = c.jenis.map(j => `*${j.nama}*\n${j.baris.map(b => `• ${b.label} : ${rp(b.harga)}`).join('\n')}`).join('\n\n');
+            return `*DAFTAR HARGA — ${c.nama}*\nper ${fmtTglStruk(toLocalDateStr())}\n\n${isi}\n\n_${templates?.companyName || 'SIMPATI KONVEKSI'}_`;
+        };
+        const htmlPriceList = (daftar, templates, { ubah = true } = {}) => {
+            const e = escapeHtmlText;
+            const n = (v) => Math.round(v).toLocaleString('id-ID');
+            const kop = `<div class="kop">${templates?.companyLogo ? `<img src="${e(templates.companyLogo)}" alt="logo">` : ''}<div><div class="nm">${e(templates?.companyName || 'SIMPATI KONVEKSI')}</div><div class="ss">Price list customer</div></div></div>`;
+            const halaman = daftar.map(c => `<div class="pg">${kop}<h1>DAFTAR HARGA</h1><div class="per">${e(c.nama)} · per ${e(fmtTglStruk(toLocalDateStr()))}</div>
+                <table><thead><tr><th>Jenis / ukuran</th><th class="r">Harga / pcs</th>${ubah ? '<th>Perubahan</th>' : ''}</tr></thead><tbody>
+                ${c.jenis.map(j => `<tr class="j"><td colspan="${ubah ? 3 : 2}">${e(j.nama)} <span class="t">· terakhir dipesan ${e(plBulan(j.terakhir))}</span></td></tr>${j.baris.map(b => `<tr><td class="u">${e(b.label)}</td><td class="r">${n(b.harga)}</td>${ubah ? `<td class="${b.ubah > 0 ? 'up' : b.ubah < 0 ? 'dn' : ''}">${b.lama ? `${b.ubah > 0 ? '▲' : '▼'} dari ${n(b.lama.harga)} <span class="t">(${e(plBulan(b.lama.sampai))})</span>` : '—'}</td>` : ''}</tr>`).join('')}`).join('')}
+                </tbody></table><div class="note">Harga per pcs dari pesanan terakhir, sudah termasuk diskon per pcs. Belum termasuk ongkir.</div></div>`).join('');
+            return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${e(namaFileCetak('Price List', daftar.length === 1 ? daftar[0].nama : 'Semua Customer'))}</title><style>
+                @page{size:A5 portrait;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;font-size:11.5px;line-height:1.4;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+                .pg{page-break-after:always}.pg:last-child{page-break-after:auto}
+                .kop{display:flex;align-items:center;gap:10px;border-bottom:3px double #111;padding-bottom:6px}.kop img{max-height:40px;max-width:100px}.nm{font-size:15px;font-weight:800}.ss{font-size:10px;color:#555}
+                h1{text-align:center;font-size:14px;letter-spacing:.06em;margin:12px 0 2px}.per{text-align:center;color:#555;font-size:10.5px;margin-bottom:10px}
+                table{width:100%;border-collapse:collapse;font-size:11px}th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:#444;border-bottom:1px solid #111;padding:3px 4px}
+                td{padding:4px;border-bottom:1px solid #e3e3e3;vertical-align:top}.r{text-align:right;white-space:nowrap}tr.j td{font-weight:800;background:#f2f2f2;border-bottom:1px solid #ccc}
+                td.u{padding-left:12px}.t{font-weight:400;color:#666;font-size:9.5px}.up{color:#9a5b00}.dn{color:#16723d}.note{margin-top:8px;font-size:9.5px;color:#555}
+            </style></head><body>${halaman}<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`;
+        };
+        const PriceListCustomer = ({ invoices, clients, templates, showToast }) => {
+            const daftar = React.useMemo(() => susunPriceList(invoices, clients), [invoices, clients]);
+            const [cariInput, setCariInput] = React.useState('');
+            const [cari, setCari] = React.useState('');
+            React.useEffect(() => { const t = setTimeout(() => setCari(cariInput), 250); return () => clearTimeout(t); }, [cariInput]);
+            const [buka, setBuka] = React.useState(null);
+            const [denganUbah, setDenganUbah] = React.useState(true);
+            const [batas, setBatas] = React.useState(30);
+            const kata = plNorm(cari).split(' ').filter(Boolean);
+            const tampil = kata.length ? daftar.filter(c => { const teks = plNorm(`${c.nama} ${c.jenis.map(j => j.nama).join(' ')}`); return kata.every(k => teks.includes(k)); }) : daftar;
+            const rp = (v) => formatRupiah(Math.round(v));
+            const salin = async (c) => {
+                const teks = teksPriceListWa(c, templates);
+                try { await navigator.clipboard.writeText(teks); showToast && showToast('Price list disalin. Tempel di WhatsApp.', 'success'); }
+                catch (err) { window.prompt('Salin price list:', teks); }
+            };
+            const cetak = (list) => { if (!list.length) { showToast && showToast('Tidak ada price list untuk dicetak.', 'error'); return; } bukaJendelaCetak(htmlPriceList(list, templates, { ubah: denganUbah }), showToast); };
+            return (
+                <div data-pl className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <div className="min-w-0 mr-auto">
+                            <h3 className="text-lg font-black text-gray-800">Price List Customer</h3>
+                            <p className="text-xs text-gray-500">Harga terakhir per jenis & ukuran dari semua invoice customer · ▲ / ▼ bila harga pernah berubah</p>
+                        </div>
+                        <label className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600"><input type="checkbox" data-pl-dengan-ubah checked={denganUbah} onChange={e => setDenganUbah(e.target.checked)} className="w-4 h-4" /> Cetak dengan perubahan harga</label>
+                        <button type="button" data-pl-cetak-semua onClick={() => cetak(tampil)} className="rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white px-3.5 py-2 text-sm font-black">🖨 Cetak {kata.length ? 'hasil cari' : 'semua'} ({tampil.length})</button>
+                    </div>
+                    <input type="search" data-pl-cari value={cariInput} onChange={e => { setCariInput(e.target.value); setBatas(30); }} placeholder="🔍 Cari customer atau jenis pesanan…" className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm" />
+                    {tampil.length === 0 && <div data-pl-kosong className="text-center text-sm text-gray-400 italic py-8 border border-dashed border-gray-200 rounded-xl">{daftar.length ? 'Tidak ada customer yang cocok.' : 'Belum ada invoice dengan harga.'}</div>}
+                    {tampil.slice(0, batas).map(c => {
+                        const terbuka = buka === c.key || (tampil.length === 1);
+                        return (
+                            <div key={c.key} data-pl-cust={c.nama} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                                <button type="button" data-pl-cust-kepala onClick={() => setBuka(terbuka && buka === c.key ? null : c.key)} className={`w-full flex items-center gap-3 px-4 py-3 text-left ${terbuka ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="font-black text-gray-800 break-words">{c.nama}{c.nUbah > 0 && <span data-pl-cust-ubah={c.nUbah} className="ml-1.5 inline-block align-middle whitespace-nowrap text-[11px] font-black rounded-full px-2 py-px bg-amber-50 text-amber-700 border border-amber-200">▲▼ {c.nUbah} harga berubah</span>}</div>
+                                        <div className="text-xs text-gray-500">{c.jenis.length} jenis pesanan · {c.nInv} invoice · terakhir {plBulan(c.terakhir)}</div>
+                                    </div>
+                                    <span className="text-gray-400 font-black">{terbuka ? '▾' : '▸'}</span>
+                                </button>
+                                {terbuka && (
+                                    <div data-pl-isi className="border-t border-gray-200 p-3 sm:p-4 space-y-3">
+                                        {c.jenis.map(j => (
+                                            <div key={j.key} data-pl-jenis={j.nama} className="border border-gray-200 rounded-xl overflow-hidden">
+                                                <div className="bg-gray-50 px-3 py-2 font-black text-gray-800 border-b border-gray-200 break-words">{j.nama} <span className="text-xs font-semibold text-gray-400">· terakhir dipesan {plBulan(j.terakhir)}</span></div>
+                                                {j.baris.map((b, i) => (
+                                                    <div key={i} data-pl-baris={b.label} data-pl-harga={b.harga} data-pl-ubah={b.ubah} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 px-3 py-2 border-t border-gray-100 first:border-t-0 tabular-nums">
+                                                        <span className="font-bold text-gray-700 break-words">{b.label}</span>
+                                                        <span className="font-black text-gray-900 text-base text-right whitespace-nowrap">{rp(b.harga)}</span>
+                                                        {b.lama && <span className="col-span-2 text-[12.5px]"><b className={b.ubah > 0 ? 'text-amber-700' : 'text-emerald-700'}>{b.ubah > 0 ? '▲ naik' : '▼ turun'} {rp(Math.abs(b.ubah))}</b> <span className="text-gray-400">· dulu {rp(b.lama.harga)} ({plBulan(b.lama.dari) === plBulan(b.lama.sampai) ? plBulan(b.lama.sampai) : `${plBulan(b.lama.dari)} – ${plBulan(b.lama.sampai)}`}) · harga baru sejak {plBulan(b.lama.sejak)}</span></span>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ))}
+                                        <div className="flex flex-wrap justify-end gap-2">
+                                            <button type="button" data-pl-salin onClick={() => salin(c)} className="rounded-xl border border-blue-300 text-blue-700 px-3 py-2 text-sm font-black">📋 Salin (WA)</button>
+                                            <button type="button" data-pl-cetak onClick={() => cetak([c])} className="rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white px-3.5 py-2 text-sm font-black">🖨 Cetak price list</button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                    {tampil.length > batas && <button type="button" data-pl-lagi onClick={() => setBatas(b => b + 30)} className="w-full rounded-xl border border-gray-300 py-2 text-sm font-bold text-gray-600">Tampilkan lagi ({tampil.length - batas} customer)</button>}
+                    <div className="text-[11.5px] text-gray-400 px-1">Harga = harga per pcs dari invoice terbaru (sudah dikurangi diskon per pcs). Diskon total invoice & ongkir tidak dihitung. Jenis pesanan yang ditulis berbeda (mis. "Kaos Dryfit" dan "Kaos Dry Fit") tampil terpisah.</div>
+                </div>
+            );
+        };
         const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi, danaOperasional, purchaseNotes, expenses, rekapKinerja, gajiSensitif = null, bukaBhpDana = null, penggunaNama = '', bukaRekapGaji = null }) => {
             // Komisi marketing hanya untuk akun dengan akses "Lihat Gaji Direksi & Marketing"
             const canViewKomisi = gajiSensitif ? !!gajiSensitif.lihat : true;
@@ -15950,6 +16145,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     {/* Tab Nav */}
                     <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
                         <button onClick={() => setActiveInvoiceTab('invoice')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeInvoiceTab === 'invoice' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>Daftar Invoice</button>
+                        <button data-inv-tab="pricelist" onClick={() => setActiveInvoiceTab('pricelist')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeInvoiceTab === 'pricelist' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>Price List</button>
                         <button onClick={() => setActiveInvoiceTab('marketing')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeInvoiceTab === 'marketing' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>Laporan Marketing</button>
                         <button onClick={() => setActiveInvoiceTab('bagi_hasil')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeInvoiceTab === 'bagi_hasil' ? 'bg-white text-teal-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>Bagi Hasil Promosi</button>
                     </div>
@@ -16312,6 +16508,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     </div>
                     </>
                     }
+                    {activeInvoiceTab === 'pricelist' && <Card><PriceListCustomer invoices={invoices} clients={clients} templates={templates} showToast={showToast} /></Card>}
                     {activeInvoiceTab === 'marketing' &&
                     <Card><h3 className="text-lg font-bold text-gray-800 mb-1">Laporan Marketing</h3><p data-lm-catatan className="text-xs text-gray-500 mb-3">Total Penjualan termasuk ongkir{canViewKomisi ? '; komisi dihitung dari nilai barang (setelah diskon, tanpa ongkir).' : '.'}</p><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th>{canViewKomisi && <th className="p-3 text-right">Nilai Barang (dasar komisi)</th>}{canViewKomisi && <th className="p-3 text-right">Total Komisi</th>}{canViewKomisi && <th className="p-3 text-center">Share Link</th>}</tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td>{canViewKomisi && <td data-lm-nilai-barang className="p-3 text-right">{formatRupiah(row.barang)}</td>}{canViewKomisi && <td className="p-3 text-right font-bold text-purple-700" data-lm-komisi={row.commission}>{row.marketing === 'Tanpa Marketing' && !row.commission ? <span className="text-gray-400 font-normal" title="Invoice tanpa marketing tidak punya komisi">—</span> : formatRupiah(row.commission)}</td>}{canViewKomisi && <td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td>}</tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div>{canViewKomisi && <div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {row.marketing === 'Tanpa Marketing' && !row.commission ? '—' : formatRupiah(row.commission)} <span data-lm-nilai-barang className="font-normal text-gray-500">· dasar {formatRupiah(row.barang)}</span></div>}</div>{canViewKomisi && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
                     }
@@ -24608,6 +24805,7 @@ ${getRekapShareLink(rekap)}
                                                     <div className="font-black text-blue-700">{formatRupiah(netSalary)}</div>
                                                     {payBadge === 'Dibayar Sebagian' && <div className="text-xs font-semibold text-red-500 mt-0.5">Sisa: {formatRupiah(sisaGajiDesktop)}</div>}
                                                     {lebihBayarDesktop > 0 && <div className="text-xs font-semibold text-violet-700 mt-0.5">Lebih: {formatRupiah(lebihBayarDesktop)}</div>}
+                                                    {ringkasSumberBayar(rekap.payments, employees).filter(x => x.dana).map(x => <div key={x.key} data-rk-row-dana className="mt-0.5"><ChipSumberDana kecil dana label={x.label} /></div>)}
                                                 </td>
                                                 <td className="p-3 text-center">
                                                     <Badge status={payBadge} />{isLegacyPaid && <div data-rk-legacy className="text-[10px] text-gray-500 mt-0.5">data lama</div>}
@@ -24653,6 +24851,7 @@ ${getRekapShareLink(rekap)}
                                                             <span className="text-sm font-black text-blue-700">{formatRupiah(netSalary)}</span>
                                                             {payBadge === 'Dibayar Sebagian' && <div className="text-xs font-semibold text-red-500">Sisa: {formatRupiah(sisaGajiMobile)}</div>}
                                                             {lebihBayarMobile > 0 && <div className="text-xs font-semibold text-violet-700">Lebih: {formatRupiah(lebihBayarMobile)}</div>}
+                                                            {ringkasSumberBayar(rekap.payments, employees).filter(x => x.dana).map(x => <div key={x.key} data-rk-row-dana className="mt-0.5"><ChipSumberDana kecil dana label={x.label} /></div>)}
                                                         </div>
                                                         <Badge status={payBadge} />{isLegacyPaid && <span data-rk-legacy className="text-[10px] text-gray-500">data lama</span>}
                                                     </div>
@@ -25762,6 +25961,7 @@ ${getRekapShareLink(rekap)}
                                                     <div className="font-black text-orange-700">{formatRupiah(sisaBayar)}</div>
                                                 </div>
                                             </div>
+                                            {payments.filter(p => safeMoney(p.amount) > 0).length > 0 && <div data-rk-sumber-ringkas className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500"><span className="font-bold">Dibayar dari:</span>{ringkasSumberBayar(payments, employees).map(s => <ChipSumberDana key={s.key} dana={s.dana} label={s.label} nilai={s.amount} />)}</div>}
                                             <div>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">Riwayat Pembayaran</div>
@@ -25775,12 +25975,15 @@ ${getRekapShareLink(rekap)}
                                                 ) : (
                                                     <div className="border border-gray-200 rounded-xl overflow-hidden">
                                                         <table className="w-full text-xs text-left">
-                                                            <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Tanggal</th><th className="p-2.5 font-semibold">Metode</th><th className="p-2.5 font-semibold text-right">Jumlah</th><th className="p-2.5 font-semibold">Catatan</th><th className="p-2.5"></th></tr></thead>
+                                                            <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Tanggal</th><th className="p-2.5 font-semibold">Sumber dana</th><th className="p-2.5 font-semibold text-right">Jumlah</th><th className="p-2.5 font-semibold">Catatan</th><th className="p-2.5"></th></tr></thead>
                                                             <tbody>
                                                                 {payments.map((pay, idx) => (
                                                                     <tr key={pay.id} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
                                                                         <td className="p-2.5 text-gray-700">{pay.date || '-'}</td>
-                                                                        <td className="p-2.5 text-gray-700">{pay.method || '-'}</td>
+                                                                        <td data-rk-bayar-sumber={pay.operasionalKaryawanId ? `dana:${pay.operasionalKaryawanId}` : 'kas'} className="p-2.5 text-gray-700">
+                                                                            <ChipSumberDana dana={!!pay.operasionalKaryawanId} label={pay.operasionalKaryawanId ? `Dana ${namaPemegangDana(pay.operasionalKaryawanId, employees)}` : 'Kas perusahaan'} />
+                                                                            {pay.method && pay.method !== '-' && <div className="text-[11px] text-gray-400 mt-0.5">{pay.method}</div>}
+                                                                        </td>
                                                                         <td className="p-2.5 text-right font-black text-green-700">{formatRupiah(safeMoney(pay.amount))}</td>
                                                                         <td className="p-2.5 text-gray-500">{pay.note || '-'}</td>
                                                                         <td className="p-2.5 text-center"><button onClick={() => handleDeletePayment(rekap.id, pay.id)} title="Hapus" className="text-red-500 hover:text-red-700 text-base font-bold px-1.5 py-0.5 rounded hover:bg-red-50">×</button></td>

@@ -322,6 +322,15 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   pembayaran sebelum tanggal mulai) vs hari ini (angka Posisi Uang), lalu **cek "pas"**: kenaikan kekayaan bersih −
   untung sejak tanggal mulai − upah belum direkap = selisih belum tercatat (✅ bila ≤ 1% pendapatan / Rp 100 rb).
   Menu Invoice & link marketing tidak berubah (invoice lama yang belum lunas tetap ditagih).
+- **Price List customer** (menu Invoice → tab **Price List**, `PriceListCustomer` / `susunPriceList`, hanya membaca
+  invoice): per customer (nama klien / nama di invoice, beda huruf besar/spasi digabung) jenis pesanan dari semua invoice
+  digabung, per ukuran harga dari invoice TERBARU (harga/pcs setelah diskon per pcs & diskon %; diskon total & ongkir
+  tidak dihitung). Bila harga pernah beda: ▲ naik / ▼ turun + harga lama & bulannya. Ukuran berurutan yang harga &
+  riwayatnya sama digabung (mis. "S – XL"). Cari customer/jenis, **Salin (WA)** tanpa riwayat, **Cetak** A5 per customer
+  atau semua (pilihan dengan/tanpa kolom perubahan).
+- **Sumber dana pembayaran gaji (Laporan Kinerja)**: Riwayat Pembayaran rekap memakai kolom **Sumber dana**
+  (`operasionalKaryawanId` → "👤 Dana <nama>", kosong → "🏦 Kas perusahaan") + ringkasan "Dibayar dari"; daftar rekap
+  memberi tanda bila ada pembayaran dari dana karyawan. Hanya tampilan.
 - **Menu Biaya — cari & total**: kata yang dicari dicocokkan per baris rincian (semua kata harus ada, urutan bebas).
   Kotak **Total pencarian** menjumlah hanya baris yang cocok (qty × harga, diskon dibagi rata); bila kata ada di
   judul/kategori/penerima/catatan, seluruh transaksi dihitung. Uang masuk & keluar dijumlah terpisah, ada rincian per
